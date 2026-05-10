@@ -256,10 +256,59 @@ static void draw_path_text(const int* path, int path_length) {
     DrawText("Shortest path is highlighted in orange", 30, 65, 22, DARKGRAY);
 }
 
-void show_graph_gui(const Graph* graph, const int* path, int path_length) {
+void show_graph_static(const Graph* graph) {
     if (graph == NULL) {
         return;
     }
+
+    SetTraceLogLevel(LOG_NONE);
+
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Graph Display");
+    SetTargetFPS(60);
+
+    Vector2 positions[15];
+
+    if (graph->num_nodes > 15) {
+        while (!WindowShouldClose()) {
+            BeginDrawing();
+
+            ClearBackground(RAYWHITE);
+            DrawText("Error: GUI supports up to 15 nodes", 250, 320, 28, RED);
+
+            EndDrawing();
+        }
+
+        CloseWindow();
+        return;
+    }
+
+    for (int i = 0; i < graph->num_nodes; i++) {
+        positions[i] = get_node_position(i, graph->num_nodes);
+    }
+
+    while (!WindowShouldClose()) {
+        BeginDrawing();
+
+        ClearBackground(RAYWHITE);
+
+        DrawText("Graph Display - Milestone 2", 30, 25, 28, BLACK);
+        DrawText("Static directed weighted graph", 30, 65, 22, DARKGRAY);
+
+        draw_edges(graph, positions);
+        draw_nodes(graph, positions);
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+}
+
+void show_graph_animation(const Graph* graph, const int* path, int path_length) {
+    if (graph == NULL) {
+        return;
+    }
+
+    SetTraceLogLevel(LOG_NONE);
 
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Graph Simulation");
     SetTargetFPS(60);

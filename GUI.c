@@ -77,7 +77,7 @@ static void draw_heart(Vector2 center, float size) {
     const int segments = 80;
     Vector2 outline[segments + 1];
 
-    float scale = size / 18.0f;
+    float scale = size / 21.0f;
 
     for (int i = 0; i <= segments; i++) {
         float t = (2.0f * PI * i) / segments;

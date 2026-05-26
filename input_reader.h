@@ -10,4 +10,16 @@ int read_graph_file(
     int* out_dst
 );
 
+typedef struct {
+    int src;
+    int dst;
+} TravelerQuery;
+
+int read_graph_file_multi(
+    const char* filename,
+    Graph** out_graph,
+    TravelerQuery** out_travelers,
+    int* out_num_travelers
+);
+
 #endif

@@ -9,12 +9,14 @@ The program reads a directed weighted graph from a text file, runs Dijkstra, dis
 - `milestone1.c` - Dijkstra terminal program
 - `milestone2.c` - Static GUI graph display
 - `milestone3.c` - Animated movement on shortest path
+- `milestone4.c` - Multiple travelers moving on the graph
 - `graph.c/h` - Graph structure
 - `dijkstra.c/h` - Dijkstra algorithm
 - `input_reader.c/h` - Input file reader
 - `GUI.c/h` - raylib GUI
 - `input.txt` - Example input
 - `Makefile` - Build commands
+  
 
 ## Milestone 1
 
@@ -29,6 +31,11 @@ Run: `./sim input.txt`
 ## Milestone 3
 
 Compile: `make milestone3`  
+Run: `./sim input.txt`
+
+## Milestone 4
+
+Compile: `make milestone4`  
 Run: `./sim input.txt`
 
 ## Clean

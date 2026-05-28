@@ -19,5 +19,8 @@ milestone3:
 
 milestone4:
 	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -o sim milestone4.c input_reader.c graph.c dijkstra.c GUI.c $(RAYLIB_LIBS) -lm
+
+milestone5:
+	$(CC) $(CFLAGS) $(RAYLIB_CFLAGS) -o sim milestone5.c input_reader.c graph.c dijkstra.c GUI.c $(RAYLIB_LIBS) -lm
 clean:
 	rm -f dijkstra sim

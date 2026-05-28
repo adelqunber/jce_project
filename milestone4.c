@@ -47,7 +47,8 @@ int main(int argc, char* argv[]) {
             travelers[i].path        = NULL;
             travelers[i].path_length = 0;
         }
-        travelers[i].pid = -1;
+        travelers[i].pid     = -1;
+        travelers[i].pipe_fd = -1;
     }
 
     for (int i = 0; i < num_travelers; i++) {

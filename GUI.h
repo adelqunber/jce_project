@@ -8,9 +8,10 @@ void show_graph_static(const Graph* graph);
 void show_graph_animation(const Graph* graph, const int* path, int path_length);
 
 typedef struct {
-    int* path;
-    int  path_length;
     pid_t pid;
+    int   pipe_fd;
+    int*  path;
+    int   path_length;
 } TravelerState;
 
 void show_graph_multi_animation(

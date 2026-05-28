@@ -8,6 +8,9 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <sys/select.h>
+#include <unistd.h>
+#include "IPC.h"
 
 #define SCREEN_WIDTH  1000
 #define SCREEN_HEIGHT 700
@@ -43,14 +46,14 @@ static const Color TRAVELER_COLORS[MAX_TRAVELERS] = {
 };
 
 static const Color HEART_FILL_COLORS[MAX_TRAVELERS] = {
-    { 200,  50,  50, 255 },   /* red    */
-    {  50,  80, 200, 255 },   /* blue   */
-    {  50, 160,  50, 255 },   /* green  */
-    { 140,  50, 180, 255 },   /* purple */
-    { 220, 130,  20, 255 },   /* orange */
-    { 220,  90, 160, 255 },   /* pink   */
-    { 140, 200,  20, 255 },   /* lime   */
-    { 200, 170,   0, 255 },   /* gold   */
+    { 200,  50,  50, 255 },
+    {  50,  80, 200, 255 },
+    {  50, 160,  50, 255 },
+    { 140,  50, 180, 255 },
+    { 220, 130,  20, 255 },
+    { 220,  90, 160, 255 },
+    { 140, 200,  20, 255 },
+    { 200, 170,   0, 255 },
 };
 
 static Vector2 get_node_position(int node, int total_nodes) {
@@ -284,6 +287,41 @@ void show_graph_animation(const Graph* graph, const int* path, int path_length) 
     CloseWindow();
 }
 
+
+static void poll_log_messages(TravelerState* travelers, int num_travelers) {
+    for (int t = 0; t < num_travelers; t++) {
+        if (travelers[t].pipe_fd < 0) continue;
+
+        fd_set fds;
+        struct timeval tv = { 0, 0 };
+        FD_ZERO(&fds);
+        FD_SET(travelers[t].pipe_fd, &fds);
+
+        if (select(travelers[t].pipe_fd + 1, &fds, NULL, NULL, &tv) <= 0)
+            continue;
+        if (!FD_ISSET(travelers[t].pipe_fd, &fds))
+            continue;
+
+        TravelerMsg msg;
+        ssize_t n = read(travelers[t].pipe_fd, &msg, sizeof(msg));
+        if (n != (ssize_t)sizeof(msg)) continue;
+
+        if (msg.is_done) {
+            printf("[PID=%d] arrived at node %d | DESTINATION\n",
+                   (int)msg.pid, msg.current_node);
+            fflush(stdout);
+            printf("[PID=%d] finished\n", (int)msg.pid);
+            fflush(stdout);
+            close(travelers[t].pipe_fd);
+            travelers[t].pipe_fd = -1;
+        } else {
+            printf("[PID=%d] arrived at node %d | next node: %d\n",
+                   (int)msg.pid, msg.current_node, msg.next_node);
+            fflush(stdout);
+        }
+    }
+}
+
 void show_graph_multi_animation(
     const Graph*   graph,
     TravelerState* travelers,
@@ -292,7 +330,7 @@ void show_graph_multi_animation(
     if (!graph || !travelers || num_travelers <= 0) return;
 
     SetTraceLogLevel(LOG_NONE);
-    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Graph Simulation - Milestone 4");
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Graph Simulation");
     SetTargetFPS(60);
 
     Vector2 pos[MAX_NODES];
@@ -317,7 +355,8 @@ void show_graph_multi_animation(
         anim[t].wait_timer         = 0;
         anim[t].waiting_at_node    = 0;
         anim[t].signal_sent        = 0;
-        anim[t].finished = (travelers[t].path == NULL || travelers[t].path_length <= 1) ? 1 : 0;
+        anim[t].finished = (travelers[t].path == NULL
+                            || travelers[t].path_length <= 1) ? 1 : 0;
     }
 
     Rectangle play_btn = { 30, SCREEN_HEIGHT - 80, 120, 45 };
@@ -343,6 +382,9 @@ void show_graph_multi_animation(
         }
 
         if (is_playing) {
+
+            poll_log_messages(travelers, num_travelers);
+
             all_done = 1;
             for (int t = 0; t < num_travelers; t++) {
                 if (anim[t].finished) continue;
@@ -386,14 +428,13 @@ void show_graph_multi_animation(
             all_done = 1;
             for (int t = 0; t < num_travelers; t++)
                 if (!anim[t].finished) { all_done = 0; break; }
-
             if (all_done) is_playing = 0;
         }
 
         BeginDrawing();
         ClearBackground(RAYWHITE);
 
-        DrawText("Graph Simulation - Milestone 4", 30, 25, 28, BLACK);
+        DrawText("Graph Simulation", 30, 25, 28, BLACK);
         DrawText("Multiple travelers (each color = one process)", 30, 58, 20, DARKGRAY);
 
         draw_edges(graph, pos);
@@ -401,17 +442,15 @@ void show_graph_multi_animation(
         for (int t = 0; t < num_travelers; t++) {
             Color c = TRAVELER_COLORS[t];
             if (anim[t].finished) c = Fade(c, 0.35f);
-            draw_path_highlight(graph, travelers[t].path, travelers[t].path_length, pos, c);
+            draw_path_highlight(graph, travelers[t].path,
+                                travelers[t].path_length, pos, c);
         }
 
         draw_nodes(graph, pos);
 
         for (int t = 0; t < num_travelers; t++) {
-            const int* path    = travelers[t].path;
-            int        plen    = travelers[t].path_length;
-            Color      fill    = HEART_FILL_COLORS[t];
-            Color      outline = Fade(TRAVELER_COLORS[t], 0.8f);
-
+            const int* path = travelers[t].path;
+            int        plen = travelers[t].path_length;
             if (!path || plen == 0) continue;
 
             Vector2 ep;
@@ -433,7 +472,7 @@ void show_graph_multi_animation(
             ep.x += t * 3.0f;
             ep.y += t * 2.0f;
 
-            draw_heart(ep, 18.0f, fill, outline);
+            draw_heart(ep, 18.0f, HEART_FILL_COLORS[t], Fade(TRAVELER_COLORS[t], 0.8f));
         }
 
         for (int t = 0; t < num_travelers; t++) {
@@ -464,11 +503,13 @@ void show_graph_multi_animation(
     CloseWindow();
 
     for (int t = 0; t < num_travelers; t++) {
+        if (travelers[t].pipe_fd >= 0) {
+            close(travelers[t].pipe_fd);
+            travelers[t].pipe_fd = -1;
+        }
         if (travelers[t].pid > 0) {
-            if (!anim[t].signal_sent) {
+            if (!anim[t].signal_sent)
                 kill(travelers[t].pid, SIGTERM);
-                anim[t].signal_sent = 1;
-            }
             waitpid(travelers[t].pid, NULL, 0);
         }
     }

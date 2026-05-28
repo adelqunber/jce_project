@@ -9,7 +9,8 @@ The program reads a directed weighted graph from a text file, runs Dijkstra, dis
 - `milestone1.c` - Dijkstra terminal program
 - `milestone2.c` - Static GUI graph display
 - `milestone3.c` - Animated movement on shortest path
-- `milestone4.c` - Multiple travelers moving on the graph
+- `milestone4.c` - Multiple travelers moving on the graph (The parent process calculates the routes for each child process)
+- `milestone5.c` - Multiple travelers moving on the graph (Each child calculates its own route and reports its position to the parent via pipes)
 - `graph.c/h` - Graph structure
 - `dijkstra.c/h` - Dijkstra algorithm
 - `input_reader.c/h` - Input file reader
@@ -36,6 +37,11 @@ Run: `./sim input.txt`
 ## Milestone 4
 
 Compile: `make milestone4`  
+Run: `./sim input.txt`
+
+## Milestone 5
+
+Compile: `make milestone5`  
 Run: `./sim input.txt`
 
 ## Clean

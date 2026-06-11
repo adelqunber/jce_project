@@ -4,9 +4,9 @@ CFLAGS = -std=c11 -Wall -Wextra -pedantic -g
 RAYLIB_CFLAGS = $(shell pkg-config --cflags raylib)
 RAYLIB_LIBS = $(shell pkg-config --libs raylib)
 
-.PHONY: all milestone1 milestone2 milestone3 milestone4 clean
+.PHONY: all milestone1 milestone2 milestone3 milestone4 milestone5 clean
 
-all: milestone4
+all: milestone5
 
 milestone1:
 	$(CC) $(CFLAGS) -o dijkstra milestone1.c input_reader.c graph.c dijkstra.c

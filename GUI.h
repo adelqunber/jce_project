@@ -20,4 +20,10 @@ void show_graph_multi_animation(
     int            num_travelers
 );
 
+void show_graph_synchronized_animation(
+    const Graph*   graph,
+    TravelerState* travelers,
+    int            num_travelers
+);
+
 #endif

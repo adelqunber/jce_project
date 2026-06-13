@@ -13,8 +13,22 @@ typedef struct {
 typedef struct {
     pid_t pid;
     int   current_node;
-    int   next_node;  
-    int   is_done;    
+    int   next_node;
+    int   is_done;
 } TravelerMsg;
+
+#define TRAVELER_STATE_WAITING_OUTSIDE 1
+#define TRAVELER_STATE_INSIDE_NODE     2
+#define TRAVELER_STATE_MOVING_EDGE     3
+#define TRAVELER_STATE_DONE            4
+
+typedef struct {
+    pid_t pid;
+    int   traveler_index;
+    int   state;
+    int   current_node;
+    int   next_node;
+    int   is_done;
+} SyncTravelerMsg;
 
 #endif

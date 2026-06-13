@@ -1,75 +1,147 @@
 # Graph Movement Simulation
 
-Operating Systems project in C on Linux.
+Operating Systems project in C using a directed weighted graph.
 
-The program reads a directed weighted graph from a text file, runs Dijkstra, displays the graph with raylib, and animates movement on the shortest path.
+## Requirements
 
-## Files
+* Linux
+* gcc
+* make
+* raylib
 
-- `milestone1.c` - Dijkstra terminal program
-- `milestone2.c` - Static GUI graph display
-- `milestone3.c` - Animated movement on shortest path
-- `milestone4.c` - Multiple travelers moving on the graph (The parent process calculates the routes for each child process)
-- `milestone5.c` - Multiple travelers moving on the graph (Each child calculates its own route and reports its position to the parent via pipes)
-- `graph.c/h` - Graph structure
-- `dijkstra.c/h` - Dijkstra algorithm
-- `input_reader.c/h` - Input file reader
-- `GUI.c/h` - raylib GUI
-- `input.txt` - Example input
-- `Makefile` - Build commands
-  
+## Compile and Run
 
-## Milestone 1
+```bash
+make milestone1
+./dijkstra input.txt
+```
 
-Compile: `make milestone1`  
-Run: `./dijkstra input.txt`
+```bash
+make milestone2
+./sim input.txt
+```
 
-## Milestone 2
+```bash
+make milestone3
+./sim input.txt
+```
 
-Compile: `make milestone2`  
-Run: `./sim input.txt`
+```bash
+make milestone4
+./sim input.txt
+```
 
-## Milestone 3
+```bash
+make milestone5
+./sim input.txt
+```
 
-Compile: `make milestone3`  
-Run: `./sim input.txt`
+```bash
+make milestone6
+./sim input.txt
+```
 
-## Milestone 4
-
-Compile: `make milestone4`  
-Run: `./sim input.txt`
-
-## Milestone 5
-
-Compile: `make milestone5`  
-Run: `./sim input.txt`
-
-## Clean
-
-Run: `make clean`
+```bash
+make clean
+```
 
 ## Input Format
 
-N M  
-src dst weight  
-src dst weight  
-...  
-query_src query_dst
+The input file is divided using separator lines:
 
-## Example
+```text
+---
+```
 
-6 8  
-0 1 4  
-0 2 2  
-1 3 5  
-2 1 1  
-2 3 8  
-3 4 2  
-4 5 3  
-2 5 10  
-0 5
+The separators split the file into sections:
 
-Expected Milestone 1 output:
+```text
+graph section
+---
+single source/destination query
+---
+multiple travelers section
+```
 
-0 -> 2 -> 5  
-12
+Meaning:
+
+* Before the first separator: graph definition
+* After the first separator: single query for milestones 1–3
+* After the second separator: travelers list for milestones 4–6
+
+This allows the same input file to support all milestones.
+
+Example:
+
+```text
+7 6
+0 3 5
+1 3 5
+2 3 5
+3 4 12
+4 5 12
+5 6 12
+---
+0 6
+---
+3
+0 6
+1 6
+2 6
+```
+
+## Milestone 1
+
+Reads a directed weighted graph from a file and runs Dijkstra to print the shortest path and total weight.
+
+## Milestone 2
+
+Displays the graph in a raylib GUI with nodes, directed edges, labels, and edge weights.
+
+## Milestone 3
+
+Animates one traveler on the shortest path calculated by Dijkstra.
+
+The traveler moves according to edge weights and waits 1 second at intermediate nodes.
+
+## Milestone 4
+
+Adds multiple travelers using child processes created with `fork`.
+
+The parent calculates all paths and controls the GUI animation.
+Each traveler is shown with a different color.
+
+## Milestone 5
+
+Each child process calculates its own Dijkstra path and sends updates to the parent.
+
+IPC mechanism used: `POSIX pipes`.
+
+A separate pipe is created for each child.
+The child sends `PathMsg` and `TravelerMsg` messages to the parent.
+
+Pipes were chosen because communication is one-way from child to parent.
+The children only send path and movement updates, so pipes are simpler than shared memory for this milestone.
+
+The parent reads the messages, updates the GUI, and prints movement logs.
+
+## Milestone 6
+
+Adds synchronized access to nodes.
+
+IPC is still done with `POSIX pipes`.
+
+Synchronization mechanism used: `POSIX semaphores`.
+
+Implementation:
+
+* one semaphore per node
+* semaphores are stored in shared memory using `mmap`
+* each node semaphore starts with value `1`
+* a child must lock the node before entering it
+* only one traveler can be inside a node at a time
+* if a node is busy, other travelers wait outside
+* each traveler stays inside the node for 1 second
+* the GUI shows waiting travelers with a yellow waiting sign/icon
+
+The child sends `SyncTravelerMsg` messages to the parent so the GUI can show moving, waiting, inside-node, and finished states.

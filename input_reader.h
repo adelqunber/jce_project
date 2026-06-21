@@ -13,6 +13,7 @@ int read_graph_file(
 typedef struct {
     int src;
     int dst;
+    int priority; /* milestone 7: optional, defaults to 0 if absent from the input file */
 } TravelerQuery;
 
 int read_graph_file_multi(

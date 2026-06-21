@@ -181,6 +181,13 @@ int read_graph_file_multi(
         return 0;
     }
 
+    /* Consume the rest of the "num_travelers" line so the per-line parsing
+       below starts cleanly on the next line. */
+    {
+        int c;
+        while ((c = fgetc(file)) != '\n' && c != EOF) { /* skip */ }
+    }
+
     TravelerQuery* travelers = malloc(num_travelers * sizeof(TravelerQuery));
     if (travelers == NULL) {
         fprintf(stderr, "Error: memory allocation failed\n");
@@ -190,13 +197,49 @@ int read_graph_file_multi(
     }
 
     for (int i = 0; i < num_travelers; i++) {
-        int src, dst;
-        if (fscanf(file, "%d %d", &src, &dst) != 2) {
+        char line[LINE_BUF];
+
+        /* Skip any blank lines between traveler entries. */
+        int got_line = 0;
+        while (fgets(line, sizeof(line), file) != NULL) {
+            int blank = 1;
+            for (const char* p = line; *p != '\0'; p++) {
+                if (*p != ' ' && *p != '\t' && *p != '\n' && *p != '\r') {
+                    blank = 0;
+                    break;
+                }
+            }
+            if (!blank) {
+                got_line = 1;
+                break;
+            }
+        }
+
+        if (!got_line) {
             fprintf(stderr, "Error: invalid traveler format at index %d\n", i);
             free(travelers);
             free_graph(graph);
             fclose(file);
             return 0;
+        }
+
+        int src, dst, priority;
+        /* Milestone 7: a third number on the line is the traveler's optional
+           priority. Older two-column lines remain valid; priority defaults
+           to 0 when absent. Parsing per line (instead of a raw token
+           stream) is what makes 2-column and 3-column lines unambiguous. */
+        int fields = sscanf(line, "%d %d %d", &src, &dst, &priority);
+
+        if (fields < 2) {
+            fprintf(stderr, "Error: invalid traveler format at index %d\n", i);
+            free(travelers);
+            free_graph(graph);
+            fclose(file);
+            return 0;
+        }
+
+        if (fields < 3) {
+            priority = 0;
         }
 
         if (src < 0 || dst < 0 || src >= n || dst >= n) {
@@ -207,8 +250,9 @@ int read_graph_file_multi(
             return 0;
         }
 
-        travelers[i].src = src;
-        travelers[i].dst = dst;
+        travelers[i].src      = src;
+        travelers[i].dst      = dst;
+        travelers[i].priority = priority;
     }
 
     fclose(file);

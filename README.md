@@ -42,6 +42,12 @@ make milestone6
 ```
 
 ```bash
+make milestone7
+./sim -schd fcfs input.txt
+./sim -schd sjf input.txt
+```
+
+```bash
 make clean
 ```
 
@@ -67,7 +73,7 @@ Meaning:
 
 * Before the first separator: graph definition
 * After the first separator: single query for milestones 1–3
-* After the second separator: travelers list for milestones 4–6
+* After the second separator: travelers list for milestones 4–7
 
 This allows the same input file to support all milestones.
 
@@ -75,20 +81,30 @@ Example:
 
 ```text
 7 6
-0 3 5
-1 3 5
-2 3 5
-3 4 12
-4 5 12
-5 6 12
+0 3 3
+1 3 3
+2 3 3
+3 4 1
+3 5 10
+3 6 5
 ---
 0 6
 ---
 3
-0 6
-1 6
-2 6
+0 5 2
+1 4 1
+2 6 3
 ```
+
+In the travelers section, each traveler line has:
+
+```text
+src dst [priority]
+```
+
+The third number is optional. If it is missing, the priority is treated as `0`.
+
+For Milestone 7, FCFS uses the arrival order to the node queue. SJF uses the shortest remaining path distance.
 
 ## Milestone 1
 
@@ -145,3 +161,39 @@ Implementation:
 * the GUI shows waiting travelers with a yellow waiting sign/icon
 
 The child sends `SyncTravelerMsg` messages to the parent so the GUI can show moving, waiting, inside-node, and finished states.
+
+## Milestone 7
+
+Adds scheduling algorithms for controlling which traveler enters a busy node next.
+
+The parent process manages a waiting queue for each node. When several travelers wait for the same node, the parent chooses the next traveler according to the selected scheduler.
+
+Two scheduling algorithms are supported:
+
+* `fcfs` - First Come First Served: the traveler that requested the node first enters first.
+* `sjf` - Shortest Job First: the traveler with the shortest remaining path distance enters first.
+
+Compile:
+
+```bash
+make milestone7
+```
+
+Run with FCFS:
+
+```bash
+./sim -schd fcfs input.txt
+```
+
+Run with SJF:
+
+```bash
+./sim -schd sjf input.txt
+```
+
+The GUI shows which scheduling algorithm is currently running.
+
+Comparison:
+
+With FCFS, travelers enter according to request order.
+With SJF, travelers with shorter remaining paths enter first, so short trips may finish earlier, while longer trips may wait more.

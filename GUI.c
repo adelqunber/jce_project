@@ -3,6 +3,7 @@
 #include "GUI.h"
 #include "raylib.h"
 #include "IPC.h"
+#include "scheduler.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -1663,4 +1664,454 @@ void show_graph_synchronized_animation(const Graph* graph,
 
     CloseWindow();
     terminate_and_wait_children(travelers, num_travelers);
+}
+/* =======================================================================
+ * Milestone 7: scheduled intersection access.
+ *
+ * Unlike milestone 6 (where each child blocked on its own semaphore and
+ * the kernel decided wakeup order), here every child only *requests* a
+ * node from the parent and then blocks reading its dedicated control
+ * pipe. The parent keeps one waiting queue per node and, whenever a node
+ * becomes free, asks the scheduler (scheduler.h) which waiting traveler
+ * should be granted access next. This is what lets us swap algorithms
+ * (FCFS / SJF) at runtime with no change to the children.
+ * ======================================================================= */
+
+typedef struct {
+    int has_position;
+    int state;       /* TRAVELER_STATE_* */
+    int node_from;
+    int node_to;
+    int finished;
+    float move_timer;
+    float move_duration;
+
+    /* Same smoothing approach as milestone 6's SyncAnimState: the "ideal"
+       position from get_sched_traveler_position() can jump (e.g. when a
+       REQUESTING traveler parked just outside a node is granted access and
+       state becomes INSIDE_NODE, node_from/node_to both collapse onto that
+       node). draw_position is what's actually rendered, and a short
+       transition eases it from where it visually was into the new target
+       instead of snapping/teleporting. */
+    int draw_position_ready;
+    Vector2 draw_position;
+
+    int transition_active;
+    float transition_timer;
+    float transition_duration;
+    Vector2 transition_start;
+} SchedAnimState;
+
+#define SCHED_OUTSIDE_FRACTION 0.85f
+
+static void apply_sched_message(const Graph* graph,
+                                TravelerState* traveler,
+                                SchedAnimState* anim,
+                                const SyncTravelerMsg* msg,
+                                int busy[],
+                                WaitEntry queue[][MAX_TRAVELERS],
+                                int queue_count[],
+                                long* seq_counter)
+{
+    if (!graph || !traveler || !anim || !msg) return;
+
+    int previous_state = anim->state;
+
+    if (msg->state == TRAVELER_STATE_REQUESTING) {
+        if (!(anim->state == TRAVELER_STATE_MOVING_EDGE && anim->node_to == msg->current_node)) {
+            anim->node_from = msg->current_node;
+        }
+        anim->node_to = msg->current_node;
+        anim->state = TRAVELER_STATE_REQUESTING;
+        anim->has_position = 1;
+
+        int n = msg->current_node;
+        if (n >= 0 && queue_count[n] < MAX_TRAVELERS) {
+            WaitEntry* e = &queue[n][queue_count[n]];
+            e->traveler_index = msg->traveler_index;
+            e->arrival_seq = (*seq_counter)++;
+            e->remaining_weight = msg->remaining_weight;
+            e->priority = msg->priority;
+            e->request_time = GetTime();
+            queue_count[n]++;
+        }
+
+        printf("[T%d] requests node %d (remaining distance %d)\n",
+               msg->traveler_index, n, msg->remaining_weight);
+        fflush(stdout);
+    } else if (msg->state == TRAVELER_STATE_INSIDE_NODE) {
+        anim->node_from = msg->current_node;
+        anim->node_to = msg->current_node;
+        anim->state = TRAVELER_STATE_INSIDE_NODE;
+
+        printf("[T%d] enters node %d\n", msg->traveler_index, msg->current_node);
+        fflush(stdout);
+    } else if (msg->state == TRAVELER_STATE_MOVING_EDGE) {
+        if (busy[msg->current_node] == msg->traveler_index) {
+            busy[msg->current_node] = -1;
+        }
+
+        anim->node_from = msg->current_node;
+        anim->node_to = msg->next_node;
+        anim->state = TRAVELER_STATE_MOVING_EDGE;
+        anim->move_timer = 0.0f;
+
+        int w = get_edge_weight(graph, msg->current_node, msg->next_node);
+        anim->move_duration = (float)w * EDGE_UNIT_TIME;
+        if (anim->move_duration < 0.15f) anim->move_duration = 0.15f;
+
+        printf("[T%d] leaves node %d -> moving to %d\n",
+               msg->traveler_index, msg->current_node, msg->next_node);
+        fflush(stdout);
+    } else if (msg->state == TRAVELER_STATE_DONE) {
+        if (busy[msg->current_node] == msg->traveler_index) {
+            busy[msg->current_node] = -1;
+        }
+
+        anim->node_from = msg->current_node;
+        anim->node_to = msg->current_node;
+        anim->state = TRAVELER_STATE_DONE;
+        anim->finished = 1;
+
+        printf("[T%d] finished at node %d\n", msg->traveler_index, msg->current_node);
+        fflush(stdout);
+    }
+
+    if (msg->state == TRAVELER_STATE_INSIDE_NODE &&
+        previous_state != TRAVELER_STATE_INSIDE_NODE &&
+        anim->draw_position_ready) {
+        /* Ease from wherever the heart was actually drawn (e.g. parked just
+           outside the node while REQUESTING, or mid-edge if granted right as
+           it arrived) smoothly into the node center, instead of snapping. */
+        anim->transition_active = 1;
+        anim->transition_timer = 0.0f;
+        anim->transition_duration = 0.28f;
+        anim->transition_start = anim->draw_position;
+    } else if (msg->state != TRAVELER_STATE_INSIDE_NODE) {
+        anim->transition_active = 0;
+        anim->transition_timer = 0.0f;
+    }
+}
+
+static Vector2 get_sched_traveler_position(const SchedAnimState* anim, Vector2 pos[])
+{
+    if (!anim || !anim->has_position) return pos[0];
+
+    if (anim->state == TRAVELER_STATE_MOVING_EDGE && anim->node_from != anim->node_to) {
+        float t = (anim->move_duration > 0.0f) ? (anim->move_timer / anim->move_duration) : 1.0f;
+        t = clamp_float(t, 0.0f, 1.0f) * SCHED_OUTSIDE_FRACTION;
+        return vector_lerp(pos[anim->node_from], pos[anim->node_to], t);
+    }
+
+    if (anim->state == TRAVELER_STATE_REQUESTING && anim->node_from != anim->node_to) {
+        return vector_lerp(pos[anim->node_from], pos[anim->node_to], SCHED_OUTSIDE_FRACTION);
+    }
+
+    return pos[anim->node_to];
+}
+
+static void terminate_and_wait_children_sched(TravelerState* travelers, int num_travelers)
+{
+    for (int i = 0; i < num_travelers; i++) {
+        if (travelers[i].pipe_fd >= 0) {
+            close(travelers[i].pipe_fd);
+            travelers[i].pipe_fd = -1;
+        }
+        if (travelers[i].control_fd >= 0) {
+            close(travelers[i].control_fd);
+            travelers[i].control_fd = -1;
+        }
+        if (travelers[i].pid > 0) {
+            int status;
+            pid_t done = waitpid(travelers[i].pid, &status, WNOHANG);
+            if (done == 0) {
+                kill(travelers[i].pid, SIGTERM);
+                kill(travelers[i].pid, SIGCONT);
+                waitpid(travelers[i].pid, NULL, 0);
+            }
+        }
+    }
+}
+
+void show_graph_scheduled_animation(const Graph* graph,
+                                    TravelerState* travelers,
+                                    int num_travelers,
+                                    SchedAlgo algo)
+{
+    if (!graph || !travelers || num_travelers <= 0) return;
+
+    SetTraceLogLevel(LOG_NONE);
+    InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Graph Simulation - Milestone 7");
+    SetTargetFPS(60);
+
+    Vector2 pos[MAX_NODES];
+
+    if (graph->num_nodes > MAX_NODES) {
+        while (!WindowShouldClose()) {
+            BeginDrawing();
+            ClearBackground(RAYWHITE);
+            DrawText("Error: GUI supports up to 15 nodes", 250, 320, 28, RED);
+            EndDrawing();
+        }
+        CloseWindow();
+        terminate_and_wait_children_sched(travelers, num_travelers);
+        return;
+    }
+
+    for (int i = 0; i < graph->num_nodes; i++) {
+        pos[i] = get_sync_node_position(i, graph->num_nodes);
+    }
+
+    if (num_travelers > MAX_TRAVELERS) num_travelers = MAX_TRAVELERS;
+
+    SchedAnimState anim[MAX_TRAVELERS];
+    for (int t = 0; t < num_travelers; t++) {
+        int has_path = (travelers[t].path != NULL && travelers[t].path_length > 0);
+        anim[t].has_position = has_path;
+        anim[t].state = 0;
+        anim[t].node_from = has_path ? travelers[t].path[0] : 0;
+        anim[t].node_to   = has_path ? travelers[t].path[0] : 0;
+        anim[t].finished = !has_path;
+        anim[t].move_timer = 0.0f;
+        anim[t].move_duration = 1.0f;
+        anim[t].draw_position_ready = 0;
+        anim[t].draw_position = (Vector2){0.0f, 0.0f};
+        anim[t].transition_active = 0;
+        anim[t].transition_timer = 0.0f;
+        anim[t].transition_duration = 0.0f;
+        anim[t].transition_start = (Vector2){0.0f, 0.0f};
+    }
+
+    int busy[MAX_NODES];
+    for (int i = 0; i < graph->num_nodes; i++) busy[i] = -1;
+
+    WaitEntry queue[MAX_NODES][MAX_TRAVELERS];
+    int queue_count[MAX_NODES];
+    for (int i = 0; i < graph->num_nodes; i++) queue_count[i] = 0;
+    long seq_counter = 0;
+
+    Rectangle play_btn;
+    play_btn.x = 30;
+    play_btn.y = SCREEN_HEIGHT - 80;
+    play_btn.width = 120;
+    play_btn.height = 45;
+
+    int is_playing = 0;
+    int all_done = 0;
+
+    while (!WindowShouldClose()) {
+        float dt = GetFrameTime();
+
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (CheckCollisionPointRec(GetMousePosition(), play_btn) && !all_done) {
+                is_playing = !is_playing;
+                if (is_playing) {
+                    continue_all_children(travelers, num_travelers);
+                } else {
+                    stop_all_children(travelers, num_travelers);
+                }
+            }
+        }
+
+        /* Drain status messages from every child. */
+        for (int t = 0; t < num_travelers; t++) {
+            int reads = 0;
+            while (reads < 8) {
+                SyncTravelerMsg msg;
+                int rs = read_one_sync_message(travelers[t].pipe_fd, &msg);
+                if (rs == 1) {
+                    apply_sched_message(graph, &travelers[t], &anim[t], &msg,
+                                         busy, queue, queue_count, &seq_counter);
+                    reads++;
+                } else {
+                    if (rs == -1 && travelers[t].pipe_fd >= 0) {
+                        anim[t].finished = 1;
+                        close(travelers[t].pipe_fd);
+                        travelers[t].pipe_fd = -1;
+                    }
+                    break;
+                }
+            }
+        }
+
+        /* Scheduler dispatch: for every free node with a non-empty queue,
+           ask the chosen algorithm who goes next and wake them up. */
+        for (int n = 0; n < graph->num_nodes; n++) {
+            if (busy[n] == -1 && queue_count[n] > 0) {
+                int idx = sched_pick_index(algo, queue[n], queue_count[n]);
+                if (idx >= 0) {
+                    int winner = queue[n][idx].traveler_index;
+                    double waited = GetTime() - queue[n][idx].request_time;
+
+                    for (int k = idx + 1; k < queue_count[n]; k++) {
+                        queue[n][k - 1] = queue[n][k];
+                    }
+                    queue_count[n]--;
+                    busy[n] = winner;
+
+                    printf("[T%d] granted node %d (waited %.2f s, algo=%s)\n",
+                           winner, n, waited, sched_algo_name(algo));
+                    fflush(stdout);
+
+                    if (winner >= 0 && winner < num_travelers && travelers[winner].control_fd >= 0) {
+                        char byte = 1;
+                        if (write(travelers[winner].control_fd, &byte, 1) < 0) {
+                            /* child may have exited; ignore, EOF handled via data pipe */
+                        }
+                    }
+                }
+            }
+        }
+
+        if (is_playing) {
+            for (int t = 0; t < num_travelers; t++) {
+                if (anim[t].state == TRAVELER_STATE_MOVING_EDGE && !anim[t].finished) {
+                    anim[t].move_timer += dt;
+                    if (anim[t].move_timer > anim[t].move_duration) {
+                        anim[t].move_timer = anim[t].move_duration;
+                    }
+                }
+            }
+        }
+
+        all_done = 1;
+        for (int t = 0; t < num_travelers; t++) {
+            if (!anim[t].finished) { all_done = 0; break; }
+        }
+        if (all_done) is_playing = 0;
+
+        for (int t = 0; t < num_travelers; t++) {
+            if (!anim[t].has_position) continue;
+
+            Vector2 target = get_sched_traveler_position(&anim[t], pos);
+
+            if (!anim[t].draw_position_ready || !is_playing) {
+                anim[t].draw_position = target;
+                anim[t].draw_position_ready = 1;
+                anim[t].transition_active = 0;
+            } else if (anim[t].transition_active) {
+                anim[t].transition_timer += dt;
+                float u = anim[t].transition_timer / anim[t].transition_duration;
+                if (u >= 1.0f) {
+                    u = 1.0f;
+                    anim[t].transition_active = 0;
+                }
+
+                /* Smoothstep easing: same curve as milestone 6, so the heart
+                   visibly walks into the node instead of teleporting. */
+                u = u * u * (3.0f - 2.0f * u);
+                anim[t].draw_position = vector_lerp(anim[t].transition_start, target, u);
+            } else {
+                anim[t].draw_position = target;
+            }
+        }
+
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+
+        DrawText("Graph Simulation - Milestone 7", 30, 25, 28, BLACK);
+        DrawText(TextFormat("Scheduling algorithm: %s", sched_algo_name(algo)), 30, 58, 22, MAROON);
+
+        draw_edges(graph, pos);
+
+        for (int t = 0; t < num_travelers; t++) {
+            if (anim[t].state == TRAVELER_STATE_MOVING_EDGE && anim[t].has_position) {
+                draw_arrow(pos[anim[t].node_from], pos[anim[t].node_to], TRAVELER_COLORS[t], 5.0f);
+            }
+        }
+
+        draw_nodes(graph, pos);
+
+        int waiting_count = 0;
+        if (!all_done) {
+            for (int t = 0; t < num_travelers; t++) {
+                if (anim[t].state == TRAVELER_STATE_REQUESTING && !anim[t].finished) {
+                    waiting_count++;
+                }
+            }
+        }
+        draw_waiting_panel_background(waiting_count);
+
+        for (int t = 0; t < num_travelers; t++) {
+            if (!anim[t].has_position) continue;
+
+            Vector2 p = anim[t].draw_position;
+            p.x += (float)t * 3.0f;
+            p.y += (float)t * 2.0f;
+
+            Color outline = Fade(TRAVELER_COLORS[t], anim[t].finished ? 0.35f : 0.85f);
+            Color fill = HEART_FILL_COLORS[t];
+            if (anim[t].finished) fill = Fade(fill, 0.35f);
+
+            draw_heart(p, 18.0f, fill, outline);
+        }
+
+        /* Waiting indicators: same yellow "W" mark UI as milestone 6, one icon
+           per traveler currently REQUESTING (blocked on its control pipe
+           waiting for the scheduler to grant the node it wants to enter). */
+        if (!all_done) {
+            int waiting_slot = 0;
+
+            for (int t = 0; t < num_travelers; t++) {
+                if (!(anim[t].state == TRAVELER_STATE_REQUESTING && !anim[t].finished)) continue;
+
+                int waiting_node = anim[t].node_to;
+                Vector2 wait_pos = get_waiting_icon_position(waiting_slot, waiting_count);
+
+                DrawCircleV(wait_pos, 10.0f, YELLOW);
+                DrawCircleLines((int)wait_pos.x, (int)wait_pos.y, 10.0f, TRAVELER_COLORS[t]);
+                DrawText("W", (int)wait_pos.x - 5, (int)wait_pos.y - 8, 16, BLACK);
+
+                const char* wait_label = TextFormat("T%d %s waits n%d",
+                                                    t,
+                                                    traveler_color_name(t),
+                                                    waiting_node);
+                DrawText(wait_label,
+                         (int)wait_pos.x + 18,
+                         (int)wait_pos.y - 8,
+                         15,
+                         TRAVELER_COLORS[t]);
+
+                waiting_slot++;
+            }
+        }
+
+        for (int t = 0; t < num_travelers; t++) {
+            int lx = 30 + t * 115;
+            int ly = SCREEN_HEIGHT - 120;
+
+            DrawRectangle(lx, ly, 18, 18, TRAVELER_COLORS[t]);
+            DrawRectangleLines(lx, ly, 18, 18, BLACK);
+
+            const char* lbl;
+            if (anim[t].finished) {
+                lbl = TextFormat("T%d done", t);
+            } else if (anim[t].state == TRAVELER_STATE_REQUESTING) {
+                lbl = TextFormat("T%d wait", t);
+            } else if (anim[t].state == TRAVELER_STATE_INSIDE_NODE) {
+                lbl = TextFormat("T%d inside", t);
+            } else if (anim[t].state == TRAVELER_STATE_MOVING_EDGE) {
+                lbl = TextFormat("T%d moving", t);
+            } else {
+                lbl = TextFormat("T%d ready", t);
+            }
+
+            DrawText(lbl, lx + 22, ly + 1, 18, DARKGRAY);
+        }
+
+        draw_button(play_btn, is_playing, all_done);
+
+        if (all_done) {
+            DrawText("All travelers arrived!", 170, SCREEN_HEIGHT - 70, 24, DARKGREEN);
+        } else if (!is_playing) {
+            DrawText("Press Play to start/resume", 170, SCREEN_HEIGHT - 70, 22, DARKBLUE);
+        } else {
+            DrawText("Running: intersection access controlled by the scheduler", 170, SCREEN_HEIGHT - 70, 22, DARKBLUE);
+        }
+
+        EndDrawing();
+    }
+
+    CloseWindow();
+    terminate_and_wait_children_sched(travelers, num_travelers);
 }

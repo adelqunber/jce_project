@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <string.h>
 #include "scheduler.h"
 
@@ -52,6 +53,24 @@ int sched_pick_index(SchedAlgo algo, const WaitEntry* entries, int count) {
             best = i;
         }
     }
+
+    /* Print who is waiting, who was selected, and why. */
+    printf("[SCHED/%s] waiting (%d): ",
+           algo == SCHED_SJF ? "SJF" : "FCFS", count);
+    for (int i = 0; i < count; i++) {
+        if (algo == SCHED_SJF)
+            printf("T%d(rem=%d)", entries[i].traveler_index, entries[i].remaining_weight);
+        else
+            printf("T%d(seq=%ld)", entries[i].traveler_index, entries[i].arrival_seq);
+        if (i < count - 1) printf(", ");
+    }
+    if (algo == SCHED_SJF)
+        printf(" -> T%d selected (shortest remaining distance: %d)\n",
+               entries[best].traveler_index, entries[best].remaining_weight);
+    else
+        printf(" -> T%d selected (earliest arrival: seq=%ld)\n",
+               entries[best].traveler_index, entries[best].arrival_seq);
+    fflush(stdout);
 
     return best;
 }

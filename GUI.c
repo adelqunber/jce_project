@@ -1674,7 +1674,7 @@ void show_graph_synchronized_animation(const Graph* graph,
  * pipe. The parent keeps one waiting queue per node and, whenever a node
  * becomes free, asks the scheduler (scheduler.h) which waiting traveler
  * should be granted access next. This is what lets us swap algorithms
- * (FCFS / SJF) at runtime with no change to the children.
+ * (FCFS / SJF / Priority) at runtime with no change to the children.
  * ======================================================================= */
 
 typedef struct {
@@ -1729,6 +1729,7 @@ static void apply_sched_message(const Graph* graph,
         if (n >= 0 && queue_count[n] < MAX_TRAVELERS) {
             WaitEntry* e = &queue[n][queue_count[n]];
             e->traveler_index = msg->traveler_index;
+            e->pid = msg->pid;
             e->arrival_seq = (*seq_counter)++;
             e->remaining_weight = msg->remaining_weight;
             e->priority = msg->priority;
@@ -1736,8 +1737,8 @@ static void apply_sched_message(const Graph* graph,
             queue_count[n]++;
         }
 
-        printf("[T%d] requests node %d (remaining distance %d)\n",
-               msg->traveler_index, n, msg->remaining_weight);
+        printf("[T%d, PID=%d] requests node %d (remaining distance %d)\n",
+               msg->traveler_index, (int)msg->pid, n, msg->remaining_weight);
         fflush(stdout);
     } else if (msg->state == TRAVELER_STATE_INSIDE_NODE) {
         anim->node_from = msg->current_node;
@@ -1941,6 +1942,7 @@ void show_graph_scheduled_animation(const Graph* graph,
                 int idx = sched_pick_index(algo, queue[n], queue_count[n]);
                 if (idx >= 0) {
                     int winner = queue[n][idx].traveler_index;
+                    pid_t winner_pid = queue[n][idx].pid;
                     double waited = GetTime() - queue[n][idx].request_time;
 
                     for (int k = idx + 1; k < queue_count[n]; k++) {
@@ -1949,8 +1951,8 @@ void show_graph_scheduled_animation(const Graph* graph,
                     queue_count[n]--;
                     busy[n] = winner;
 
-                    printf("[T%d] granted node %d (waited %.2f s, algo=%s)\n",
-                           winner, n, waited, sched_algo_name(algo));
+                    printf("[T%d, PID=%d] granted node %d (waited %.2f s, algo=%s)\n",
+                           winner, (int)winner_pid, n, waited, sched_algo_name(algo));
                     fflush(stdout);
 
                     if (winner >= 0 && winner < num_travelers && travelers[winner].control_fd >= 0) {

@@ -28,6 +28,56 @@ const char* sched_algo_name(SchedAlgo algo) {
     }
 }
 
+/* Print every scheduling decision to standard output so the waiting queue,
+ * selected traveler, and selection reason can be followed during runtime. */
+static void print_sched_decision(SchedAlgo algo,
+                                 const WaitEntry* entries,
+                                 int count,
+                                 int selected_index) {
+    const WaitEntry* selected = &entries[selected_index];
+
+    printf("\n[SCHEDULER] Decision using %s\n", sched_algo_name(algo));
+    printf("Waiting travelers:");
+
+    for (int i = 0; i < count; i++) {
+        printf(" T%d(arrival=%ld, remaining=%d)",
+               entries[i].traveler_index,
+               entries[i].arrival_seq,
+               entries[i].remaining_weight);
+
+        if (i < count - 1) {
+            printf(",");
+        }
+    }
+
+    printf("\nSelected: T%d\n", selected->traveler_index);
+
+    if (algo == SCHED_SJF) {
+        int shortest_count = 0;
+
+        for (int i = 0; i < count; i++) {
+            if (entries[i].remaining_weight == selected->remaining_weight) {
+                shortest_count++;
+            }
+        }
+
+        if (shortest_count > 1) {
+            printf("Reason: shortest remaining distance (%d); "
+                   "tie broken by earliest arrival (%ld).\n",
+                   selected->remaining_weight,
+                   selected->arrival_seq);
+        } else {
+            printf("Reason: shortest remaining distance (%d).\n",
+                   selected->remaining_weight);
+        }
+    } else {
+        printf("Reason: earliest arrival (%ld), according to FCFS.\n",
+               selected->arrival_seq);
+    }
+
+    fflush(stdout);
+}
+
 int sched_pick_index(SchedAlgo algo, const WaitEntry* entries, int count) {
     if (entries == NULL || count <= 0) {
         return -1;
@@ -54,23 +104,6 @@ int sched_pick_index(SchedAlgo algo, const WaitEntry* entries, int count) {
         }
     }
 
-    /* Print who is waiting, who was selected, and why. */
-    printf("[SCHED/%s] waiting (%d): ",
-           algo == SCHED_SJF ? "SJF" : "FCFS", count);
-    for (int i = 0; i < count; i++) {
-        if (algo == SCHED_SJF)
-            printf("T%d(rem=%d)", entries[i].traveler_index, entries[i].remaining_weight);
-        else
-            printf("T%d(seq=%ld)", entries[i].traveler_index, entries[i].arrival_seq);
-        if (i < count - 1) printf(", ");
-    }
-    if (algo == SCHED_SJF)
-        printf(" -> T%d selected (shortest remaining distance: %d)\n",
-               entries[best].traveler_index, entries[best].remaining_weight);
-    else
-        printf(" -> T%d selected (earliest arrival: seq=%ld)\n",
-               entries[best].traveler_index, entries[best].arrival_seq);
-    fflush(stdout);
-
+    print_sched_decision(algo, entries, count, best);
     return best;
 }

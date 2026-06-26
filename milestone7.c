@@ -182,7 +182,7 @@ static void cleanup_started_children(TravelerState* travelers, int started) {
 }
 
 static void print_usage(const char* prog) {
-    fprintf(stderr, "Usage: %s -schd <fcfs|sjf> <input_file>\n", prog);
+    fprintf(stderr, "Usage: %s -schd <fcfs|sjf|priority> <input_file>\n", prog);
 }
 
 int main(int argc, char* argv[]) {
@@ -193,7 +193,10 @@ int main(int argc, char* argv[]) {
 
     SchedAlgo algo;
     if (!parse_sched_algo(argv[2], &algo)) {
-        fprintf(stderr, "Error: unknown scheduling algorithm '%s' (use fcfs or sjf)\n", argv[2]);
+        fprintf(stderr,
+                "Error: unknown scheduling algorithm '%s' "
+                "(use fcfs, sjf, or priority)\n",
+                argv[2]);
         print_usage(argv[0]);
         return 1;
     }

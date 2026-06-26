@@ -1,10 +1,12 @@
 #ifndef SCHEDULER_H
 #define SCHEDULER_H
 
+#include <sys/types.h>
+
 /*
  * Milestone 7: scheduling algorithms for intersection (node) access.
  *
- * Two algorithms are supported, selectable on the command line with
+ * Three algorithms are supported, selectable on the command line with
  * "-schd <name>":
  *
  *   fcfs  First-Come-First-Served: travelers enter the node in the order
@@ -13,23 +15,29 @@
  *   sjf   Shortest-Job-First: among the travelers waiting for a node, the
  *         one with the smallest remaining distance to its destination is
  *         let in first (ties broken by arrival order).
+ *
+ *   priority  Priority scheduling: the waiting process with the lowest PID
+ *             is let in first (ties broken by arrival order).
  */
 
 typedef enum {
     SCHED_FCFS = 0,
-    SCHED_SJF  = 1
+    SCHED_SJF  = 1,
+    SCHED_PRIORITY = 2
 } SchedAlgo;
 
 /* One traveler waiting in a node's queue. */
 typedef struct {
     int    traveler_index;
-    long   arrival_seq;       /* used by FCFS, and as a tie-breaker for SJF */
+    pid_t  pid;               /* used by Priority: lower PID runs first */
+    long   arrival_seq;       /* FCFS order; tie-breaker for SJF/Priority */
     int    remaining_weight;  /* distance left to destination, used by SJF */
     int    priority;          /* optional data from the input file */
     double request_time;      /* used only to report waiting time, informational */
 } WaitEntry;
 
-/* Parses "fcfs" / "sjf" (case sensitive). Returns 1 on success, 0 if unknown. */
+/* Parses "fcfs" / "sjf" / "priority" (case sensitive).
+ * Returns 1 on success, 0 if unknown. */
 int parse_sched_algo(const char* name, SchedAlgo* out_algo);
 
 /* Human readable name shown in the GUI / logs. */

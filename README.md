@@ -45,6 +45,7 @@ make milestone6
 make milestone7
 ./sim -schd fcfs input.txt
 ./sim -schd sjf input.txt
+./sim -schd priority input.txt
 ```
 
 ```bash
@@ -104,7 +105,7 @@ src dst [priority]
 
 The third number is optional. If it is missing, the priority is treated as `0`.
 
-For Milestone 7, FCFS uses the arrival order to the node queue. SJF uses the shortest remaining path distance.
+For Milestone 7, FCFS uses the arrival order to the node queue. SJF uses the shortest remaining path distance. Priority selects the waiting process with the lowest PID.
 
 ## Milestone 1
 
@@ -168,10 +169,11 @@ Adds scheduling algorithms for controlling which traveler enters a busy node nex
 
 The parent process manages a waiting queue for each node. When several travelers wait for the same node, the parent chooses the next traveler according to the selected scheduler.
 
-Two scheduling algorithms are supported:
+Three scheduling algorithms are supported:
 
 * `fcfs` - First Come First Served: the traveler that requested the node first enters first.
 * `sjf` - Shortest Job First: the traveler with the shortest remaining path distance enters first.
+* `priority` - Priority scheduling: the waiting process with the lowest PID enters first.
 
 Compile:
 
@@ -191,9 +193,16 @@ Run with SJF:
 ./sim -schd sjf input.txt
 ```
 
+Run with Priority (lowest PID first):
+
+```bash
+./sim -schd priority input.txt
+```
+
 The GUI shows which scheduling algorithm is currently running.
 
 Comparison:
 
 With FCFS, travelers enter according to request order.
 With SJF, travelers with shorter remaining paths enter first, so short trips may finish earlier, while longer trips may wait more.
+With Priority, the scheduler grants the node to the waiting child process with the lowest PID.
